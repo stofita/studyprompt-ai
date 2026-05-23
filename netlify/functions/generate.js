@@ -1,8 +1,8 @@
 exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
-  }
-
+  }  
+  
   const API_KEY = process.env.GROQ_API_KEY;
   if (!API_KEY) {
     return { statusCode: 500, body: JSON.stringify({ error: "API key not configured — check Netlify environment variables" }) };
