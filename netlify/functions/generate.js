@@ -3,7 +3,7 @@ exports.handler = async function (event) {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
-  const API_KEY = process.env.XAI_API_KEY;
+  const API_KEY = process.env.GROQ_API_KEY;
   if (!API_KEY) {
     return { statusCode: 500, body: JSON.stringify({ error: "API key not configured — check Netlify environment variables" }) };
   }
@@ -56,14 +56,14 @@ When to use: [One sentence]
 Continue through Prompt ${safeCount}. Make every prompt specific to "${safeSubject}" and "${safeTask}". Number sequentially.`;
 
   try {
-    const response = await fetch("https://api.x.ai/v1/chat/completions", {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${API_KEY}`
       },
       body: JSON.stringify({
-        model: "grok-3-mini",
+        model: "llama-3.3-70b-versatile",
         max_tokens: maxTokens,
         messages: [
           {
@@ -79,7 +79,7 @@ Continue through Prompt ${safeCount}. Make every prompt specific to "${safeSubje
       const errBody = await response.text();
       return {
         statusCode: response.status,
-        body: JSON.stringify({ error: `xAI ${response.status}: ${errBody}` })
+        body: JSON.stringify({ error: `Groq ${response.status}: ${errBody}` })
       };
     }
 
