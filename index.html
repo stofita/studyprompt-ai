@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyPrompt AI — Your personal study prompt generator</title>
+<meta name="description" content="Generate tailored ChatGPT prompts for any subject, any task, in seconds. Built for students.">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f7f7f5;
+    --surface: #ffffff;
+    --border: #e5e5e2;
+    --border-strong: #c8c8c4;
+    --text: #1a1a1a;
+    --text-2: #5a5a58;
+    --text-3: #9a9a97;
+    --accent: #1a3a5c;
+    --accent-bg: #eef3f8;
+    --accent-text: #1a3a5c;
+    --green-bg: #edf7f0;
+    --green-text: #1a6b35;
+    --red-bg: #fdf0f0;
+    --red-text: #8b2020;
+    --red-border: #f5c6c6;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', sans-serif;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  }
+  body { font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; min-height: 100vh; }
+
+  /* NAV */
+  nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: .85rem 1.5rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
+  .nav-brand { font-size: 15px; font-weight: 600; color: var(--accent); letter-spacing: -.01em; }
+  .nav-badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--green-bg); color: var(--green-text); font-weight: 500; }
+
+  /* HERO */
+  .hero { text-align: center; padding: 3rem 1rem 2rem; }
+  .hero-tag { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); margin-bottom: .6rem; }
+  .hero h1 { font-size: 30px; font-weight: 600; color: var(--text); margin-bottom: .5rem; letter-spacing: -.02em; line-height: 1.2; }
+  .hero p { font-size: 15px; color: var(--text-2); max-width: 440px; margin: 0 auto; }
+
+  /* LAYOUT */
+  .wrap { max-width: 700px; margin: 0 auto; padding: 0 1rem 4rem; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.35rem 1.5rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
+  .card-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-bottom: 1rem; }
+
+  /* MODE BUTTONS */
+  .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .mode-btn { padding: 12px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; font-size: 12px; font-family: var(--sans); text-align: center; transition: all .15s; line-height: 1.4; }
+  .mode-btn .icon { font-size: 20px; display: block; margin-bottom: 5px; }
+  .mode-btn:hover { border-color: var(--border-strong); color: var(--text); transform: translateY(-1px); }
+  .mode-btn.active { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-text); font-weight: 500; }
+
+  /* FIELDS */
+  .fields-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { font-size: 12px; color: var(--text-2); font-weight: 500; }
+  .field input, .field select, .field textarea {
+    width: 100%; font-size: 13px; padding: 9px 12px;
+    border-radius: var(--radius); border: 1px solid var(--border);
+    background: var(--surface); color: var(--text);
+    font-family: var(--sans); outline: none; transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(26,58,92,.06); }
+  .field textarea { resize: vertical; min-height: 80px; }
+
+  /* TIPS */
+  .tips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tip { font-size: 11px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); color: var(--text-2); cursor: pointer; background: transparent; font-family: var(--sans); transition: all .15s; }
+  .tip:hover { border-color: var(--border-strong); color: var(--text); background: var(--bg); }
+
+  /* LOADING BAR */
+  .bar { height: 2px; background: var(--border); border-radius: 2px; margin: .85rem 0; overflow: hidden; display: none; }
+  .bar.on { display: block; }
+  .bar-fill { height: 100%; background: var(--accent); animation: sweep 1.6s ease-in-out infinite; }
+  @keyframes sweep { 0%{width:0;margin-left:0} 60%{width:60%;margin-left:20%} 100%{width:0;margin-left:100%} }
+
+  /* GENERATE BUTTON */
+  .gen-btn {
+    width: 100%; padding: 13px; margin-top: .5rem;
+    border-radius: var(--radius); border: none;
+    background: var(--accent); color: #fff;
+    font-size: 14px; font-weight: 500; font-family: var(--sans);
+    cursor: pointer; transition: all .2s; letter-spacing: .01em;
+  }
+  .gen-btn:hover { background: #244d7a; transform: translateY(-1px); }
+  .gen-btn:active { transform: translateY(0); }
+  .gen-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+  /* RESULTS */
+  .results { margin-top: .5rem; }
+  .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .85rem; }
+  .results-title { font-size: 14px; font-weight: 500; }
+  .copy-all { font-size: 12px; padding: 5px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; font-family: var(--sans); transition: all .15s; }
+  .copy-all:hover { border-color: var(--border-strong); color: var(--text); }
+
+  .prompt-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.25rem; margin-bottom: 8px; position: relative; box-shadow: var(--shadow); transition: border-color .15s; }
+  .prompt-card:hover { border-color: var(--border-strong); }
+  .p-num { font-size: 10px; color: var(--text-3); letter-spacing: .1em; text-transform: uppercase; margin-bottom: 3px; }
+  .p-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 9px; }
+  .p-body { font-size: 12px; color: var(--text-2); background: var(--bg); border-radius: 6px; padding: 10px 12px; line-height: 1.8; font-family: var(--mono); margin-bottom: 7px; }
+  .p-when { font-size: 11px; color: var(--text-3); font-style: italic; }
+  .cp { position: absolute; top: .9rem; right: .9rem; font-size: 10px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text-3); cursor: pointer; font-family: var(--sans); transition: all .15s; }
+  .cp:hover { border-color: var(--border-strong); color: var(--text); }
+  .cp.ok { background: var(--green-bg); color: var(--green-text); border-color: var(--green-text); }
+
+  /* STATES */
+  .empty { text-align: center; padding: 3rem 1rem; color: var(--text-3); font-size: 13px; border: 1px dashed var(--border); border-radius: var(--radius-lg); line-height: 1.8; }
+  .err { padding: 1.25rem; color: var(--red-text); background: var(--red-bg); border: 1px solid var(--red-border); border-radius: var(--radius); font-size: 13px; line-height: 1.6; }
+
+  /* FOOTER */
+  footer { text-align: center; padding: 2rem 1rem; font-size: 12px; color: var(--text-3); border-top: 1px solid var(--border); margin-top: 2rem; }
+
+  @media (max-width: 520px) {
+    .mode-grid { grid-template-columns: repeat(2, 1fr); }
+    .fields-2 { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-brand">StudyPrompt AI</span>
+  <span class="nav-badge">Member access</span>
+</nav>
+
+<div class="hero">
+  <div class="hero-tag">Powered by AI</div>
+  <h1>Your personal study prompt generator</h1>
+  <p>Enter your subject and task — get tailored ChatGPT prompts in seconds.</p>
+</div>
+
+<div class="wrap">
+
+  <div class="card">
+    <div class="card-label">What do you need help with?</div>
+    <div class="mode-grid">
+      <button class="mode-btn active" onclick="setMode(this,'essay')"><span class="icon">✍️</span>Essay writing</button>
+      <button class="mode-btn" onclick="setMode(this,'exam')"><span class="icon">💡</span>Exam revision</button>
+      <button class="mode-btn" onclick="setMode(this,'research')"><span class="icon">🔍</span>Research help</button>
+      <button class="mode-btn" onclick="setMode(this,'math')"><span class="icon">📐</span>Math & science</button>
+      <button class="mode-btn" onclick="setMode(this,'plan')"><span class="icon">📅</span>Study planning</button>
+      <button class="mode-btn" onclick="setMode(this,'thesis')"><span class="icon">🎓</span>Thesis / dissertation</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Tell us about your task</div>
+    <div class="fields-2">
+      <div class="field">
+        <label for="subject">Subject or course</label>
+        <input id="subject" placeholder="e.g. History, Biology, Law" maxlength="100" />
+      </div>
+      <div class="field">
+        <label for="level">Your level</label>
+        <select id="level">
+          <option>High school</option>
+          <option selected>University — undergraduate</option>
+          <option>University — postgraduate</option>
+          <option>Self-study / online course</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <label for="task">Describe your specific task or topic</label>
+      <textarea id="task" placeholder="e.g. I need to write a 2000-word essay on the causes of World War 1 for my history class" maxlength="500"></textarea>
+      <div class="tips" id="tips"></div>
+    </div>
+    <div class="fields-2">
+      <div class="field">
+        <label for="count">Number of prompts</label>
+        <select id="count">
+          <option value="5">5 prompts (quick)</option>
+          <option value="10" selected>10 prompts (standard)</option>
+          <option value="15">15 prompts (full pack)</option>
+          <option value="20">20 prompts (complete)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="lang">Language</label>
+        <select id="lang">
+          <option>English</option>
+          <option>French</option>
+          <option>Arabic</option>
+          <option>Spanish</option>
+        </select>
+      </div>
+    </div>
+    <div class="bar" id="bar"><div class="bar-fill"></div></div>
+    <button class="gen-btn" id="genBtn" onclick="generate()">Generate my prompts ↗</button>
+  </div>
+
+  <div class="results" id="results">
+    <div class="empty">Your personalized prompts will appear here.<br>Fill in your subject and task above to get started.</div>
+  </div>
+
+</div>
+
+<footer>StudyPrompt AI · Member access only · <a href="mailto:support@studyprompt.ai" style="color:inherit">support</a></footer>
+
+<script>
+  const modes = {
+    essay:    { label: 'academic essay writing, structuring arguments, thesis statements, and critical analysis', tips: ['Write a persuasive essay','Structure my argument','Write a strong introduction','Improve my thesis statement','Write a conclusion'] },
+    exam:     { label: 'exam revision, memorization, practice questions, and topic summaries', tips: ['Create revision flashcards','Make practice questions','Summarize this topic','Build a mind map','Test my knowledge'] },
+    research: { label: 'finding sources, analyzing research papers, literature reviews, and citations', tips: ['Find key sources','Summarize a paper','Write a literature review','Analyze an argument','Cite correctly'] },
+    math:     { label: 'math and science problem solving, step-by-step explanations, and concept clarification', tips: ['Explain this concept','Solve step by step','Create practice problems','Simplify this formula','Check my working'] },
+    plan:     { label: 'creating study schedules, time management, and breaking down large tasks', tips: ['Build a study schedule','Break down my syllabus','Plan exam week','Create a daily routine','Prioritize my tasks'] },
+    thesis:   { label: 'thesis and dissertation writing, research methodology, and academic argumentation', tips: ['Write my abstract','Structure my chapter','Develop my argument','Review my methodology','Improve my academic writing'] }
+  };
+
+  let currentMode = 'essay';
+
+  function setMode(el, mode) {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    currentMode = mode;
+    renderTips(mode);
+  }
+
+  function renderTips(mode) {
+    document.getElementById('tips').innerHTML = modes[mode].tips
+      .map(t => `<button class="tip" onclick="document.getElementById('task').value='${t}'">${t}</button>`)
+      .join('');
+  }
+
+  function copyText(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      btn.classList.add('ok');
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('ok'); }, 2000);
+    });
+  }
+
+  function parsePrompts(raw) {
+    const results = [];
+    const parts = raw.split(/\n(?=#{1,3}\s*(?:prompt\s*)?\d+[.:)#\s])/i);
+    for (const part of parts) {
+      if (!part.trim()) continue;
+      const lines = part.trim().split('\n');
+      const header = lines[0].replace(/[#*]/g, '').trim();
+      const hm = header.match(/(?:prompt\s*)?(\d+)[.:)#]?\s*(.+)/i);
+      if (!hm) continue;
+      let prompt = '', when = '', capturing = false;
+      for (let i = 1; i < lines.length; i++) {
+        const l = lines[i];
+        const lc = l.toLowerCase().replace(/\*/g, '');
+        if (/^prompt\s*:/.test(lc)) {
+          capturing = true;
+          prompt += l.replace(/^\*?\*?prompt\s*:\*?\*?\s*/i, '').trim() + ' ';
+        } else if (/^when to use\s*:/.test(lc)) {
+          capturing = false;
+          when = l.replace(/^\*?\*?when to use\s*:\*?\*?\s*/i, '').trim();
+        } else if (capturing && l.trim() && !l.startsWith('#')) {
+          prompt += l.replace(/^\*?\*?/, '').trim() + ' ';
+        } else if (!prompt && !capturing && l.trim() && !l.startsWith('#')) {
+          prompt += l.replace(/^\*?\*?/, '').trim() + ' ';
+        }
+      }
+      if (prompt.trim().length > 5) results.push({ num: hm[1], title: hm[2].replace(/\*/g, '').trim(), prompt: prompt.trim(), when });
+    }
+    return results;
+  }
+
+  async function generate() {
+    const subject = document.getElementById('subject').value.trim();
+    const task    = document.getElementById('task').value.trim();
+    const level   = document.getElementById('level').value;
+    const count   = document.getElementById('count').value;
+    const lang    = document.getElementById('lang').value;
+
+    if (!subject || !task) { alert('Please fill in your subject and describe your task first.'); return; }
+
+    const btn = document.getElementById('genBtn');
+    btn.disabled = true;
+    btn.textContent = 'Generating your prompts...';
+    document.getElementById('bar').classList.add('on');
+    document.getElementById('results').innerHTML = '<div class="empty">Generating your personalized prompts...<br>This takes about 10–15 seconds.</div>';
+
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, task, mode: currentMode, level, count, lang })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Server error');
+
+      const parsed = parsePrompts(data.result);
+      const resultsEl = document.getElementById('results');
+
+      if (parsed.length === 0) {
+        resultsEl.innerHTML = `<div class="card"><div class="card-label">Your prompts</div><pre style="white-space:pre-wrap;font-size:12px;line-height:1.75;color:var(--text-2);font-family:var(--mono)">${data.result}</pre></div>`;
+        return;
+      }
+
+      const allText = parsed.map(p => `${p.title}\n\n${p.prompt}`).join('\n\n---\n\n');
+      resultsEl.innerHTML = '';
+
+      const hdr = document.createElement('div');
+      hdr.className = 'results-header';
+      hdr.innerHTML = `<span class="results-title">${parsed.length} prompts for ${subject}</span><button class="copy-all" id="caBtn">Copy all</button>`;
+      resultsEl.appendChild(hdr);
+      document.getElementById('caBtn').addEventListener('click', function () { copyText(allText, this); });
+
+      parsed.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'prompt-card';
+        const pt = p.prompt;
+        card.innerHTML = `
+          <div class="p-num">Prompt ${String(p.num).padStart(2, '0')}</div>
+          <div class="p-title">${p.title}</div>
+          <div class="p-body">${pt}</div>
+          ${p.when ? `<div class="p-when">When to use: ${p.when}</div>` : ''}`;
+        const cp = document.createElement('button');
+        cp.className = 'cp';
+        cp.textContent = 'Copy';
+        cp.addEventListener('click', function () { copyText(pt, this); });
+        card.appendChild(cp);
+        resultsEl.appendChild(card);
+      });
+
+    } catch (e) {
+      document.getElementById('results').innerHTML = `<div class="err"><strong>Something went wrong:</strong> ${e.message}<br><br>Please try again in a moment.</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Generate my prompts ↗';
+      document.getElementById('bar').classList.remove('on');
+    }
+  }
+
+  renderTips('essay');
+</script>
+</body>
+</html>
