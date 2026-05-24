@@ -1,37 +1,7 @@
-// Brute force protection — in-memory per cold start
-// Locks an IP after 10 failed attempts for 15 minutes
-const failMap = new Map();
+const { getStore } = require("@netlify/blobs");
 
-function isBruteForce(ip) {
-  const now = Date.now();
-  const lockoutMs = 15 * 60 * 1000; // 15 minute lockout
-  const maxFails = 10;
-
-  if (!failMap.has(ip)) return false;
-
-  const entry = failMap.get(ip);
-
-  // Reset if lockout expired
-  if (now - entry.firstFail > lockoutMs) {
-    failMap.delete(ip);
-    return false;
-  }
-
-  return entry.count >= maxFails;
-}
-
-function recordFail(ip) {
-  const now = Date.now();
-  if (!failMap.has(ip)) {
-    failMap.set(ip, { count: 1, firstFail: now });
-  } else {
-    failMap.get(ip).count++;
-  }
-}
-
-function clearFail(ip) {
-  failMap.delete(ip);
-}
+const MAX_FAILS = 10;
+const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
 exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
@@ -39,14 +9,7 @@ exports.handler = async function (event) {
   }
 
   const ip = event.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "unknown";
-
-  // Check brute force lockout
-  if (isBruteForce(ip)) {
-    return {
-      statusCode: 429,
-      body: JSON.stringify({ ok: false, error: "Too many failed attempts. Please try again in 15 minutes." })
-    };
-  }
+  const key = `fails:${ip}`;
 
   const CORRECT = process.env.ACCESS_CODE;
   if (!CORRECT) {
@@ -58,30 +21,56 @@ exports.handler = async function (event) {
   catch { return { statusCode: 400, body: JSON.stringify({ ok: false }) }; }
 
   const { code } = body;
-
-  // Validate input type and length
   if (typeof code !== "string" || code.length > 100) {
     return { statusCode: 400, body: JSON.stringify({ ok: false }) };
   }
 
-  const ok = code.trim() === CORRECT.trim();
+  try {
+    const store = getStore("rate-limits");
+    const now = Date.now();
 
-  if (ok) {
-    clearFail(ip); // Reset fail count on success
-  } else {
-    recordFail(ip); // Track failed attempt
+    // Check existing fails
+    const raw = await store.get(key, { type: "json" }).catch(() => null);
+    if (raw && raw.count >= MAX_FAILS && now - raw.firstFail < LOCKOUT_MS) {
+      const remainingMins = Math.ceil((LOCKOUT_MS - (now - raw.firstFail)) / 60000);
+      return {
+        statusCode: 429,
+        body: JSON.stringify({ ok: false, error: `Too many failed attempts. Try again in ${remainingMins} minute(s).` })
+      };
+    }
+
+    const ok = code.trim() === CORRECT.trim();
+
+    if (ok) {
+      // Clear fails on success
+      await store.delete(key).catch(() => {});
+    } else {
+      // Record fail
+      const entry = raw && now - raw.firstFail < LOCKOUT_MS
+        ? { count: raw.count + 1, firstFail: raw.firstFail }
+        : { count: 1, firstFail: now };
+      await store.set(key, JSON.stringify(entry));
+    }
+
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ok })
+    };
+
+  } catch (err) {
+    // Fallback — if blob store fails, still check password
+    const ok = code.trim() === CORRECT.trim();
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ok })
+    };
   }
-
-  return {
-    statusCode: 200,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ok })
-  };
 };
 
 // ⚠️ Security Notes:
-// - Password stored in env var ACCESS_CODE only
-// - Brute force protection: 10 fails = 15 min lockout per IP
-// - Input type and length validated before comparison
-// - Failed attempts logged per IP, success clears the counter
-// - No logging of attempted codes
+// - Uses Netlify Blobs for persistent rate limiting across serverless instances
+// - 10 failed attempts = 15 min lockout per IP
+// - Falls back to password check if blob store unavailable
+// - Access code stored in env var only, never logged
