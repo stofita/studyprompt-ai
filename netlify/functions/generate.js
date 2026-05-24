@@ -1,11 +1,59 @@
+// Simple in-memory rate limiter (resets on function cold start)
+// For production scale, replace with Redis or Netlify KV
+const rateLimitMap = new Map();
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const windowMs = 60 * 1000; // 1 minute window
+  const maxRequests = 10; // max 10 generations per minute per IP
+
+  if (!rateLimitMap.has(ip)) {
+    rateLimitMap.set(ip, { count: 1, start: now });
+    return false;
+  }
+
+  const entry = rateLimitMap.get(ip);
+
+  // Reset window if expired
+  if (now - entry.start > windowMs) {
+    rateLimitMap.set(ip, { count: 1, start: now });
+    return false;
+  }
+
+  // Increment and check
+  entry.count++;
+  if (entry.count > maxRequests) return true;
+
+  return false;
+}
+
+// Allowed values whitelist — prevents prompt injection via mode/lang fields
+const ALLOWED_MODES = new Set(["essay", "exam", "research", "math", "plan", "thesis"]);
+const ALLOWED_LANGS = new Set(["English", "French", "Arabic", "Spanish"]);
+const ALLOWED_LEVELS = new Set([
+  "High school",
+  "University — undergraduate",
+  "University — postgraduate",
+  "Self-study / online course"
+]);
+
 exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
+  // Rate limiting by IP
+  const ip = event.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "unknown";
+  if (isRateLimited(ip)) {
+    return {
+      statusCode: 429,
+      body: JSON.stringify({ error: "Too many requests. Please wait a minute and try again." })
+    };
+  }
+
   const API_KEY = process.env.GROQ_API_KEY;
   if (!API_KEY) {
-    return { statusCode: 500, body: JSON.stringify({ error: "API key not configured — check Netlify environment variables" }) };
+    return { statusCode: 500, body: JSON.stringify({ error: "API key not configured" }) };
   }
 
   let body;
@@ -16,17 +64,32 @@ exports.handler = async function (event) {
   }
 
   const { subject, task, mode, level, count, lang } = body;
+
+  // Validate required fields exist
   if (!subject || !task || !mode || !level || !count || !lang) {
     return { statusCode: 400, body: JSON.stringify({ error: "Missing required fields" }) };
   }
 
-  const sanitize = (str) => String(str).replace(/<[^>]*>/g, "").slice(0, 500);
+  // Whitelist validation — reject anything not in allowed values
+  if (!ALLOWED_MODES.has(mode)) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid mode" }) };
+  }
+  if (!ALLOWED_LANGS.has(lang)) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid language" }) };
+  }
+  if (!ALLOWED_LEVELS.has(level)) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid level" }) };
+  }
+
+  // Sanitize free-text inputs
+  const sanitize = (str) => String(str).replace(/<[^>]*>/g, "").replace(/[`${}\\]/g, "").trim().slice(0, 500);
   const safeSubject = sanitize(subject);
   const safeTask    = sanitize(task);
-  const safeMode    = sanitize(mode);
-  const safeLevel   = sanitize(level);
-  const safeLang    = sanitize(lang);
   const safeCount   = Math.min(Math.max(parseInt(count) || 10, 5), 20);
+
+  if (!safeSubject || !safeTask) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Subject and task are required" }) };
+  }
 
   const modeLabels = {
     essay:    "academic essay writing, structuring arguments, thesis statements, and critical analysis",
@@ -37,31 +100,30 @@ exports.handler = async function (event) {
     thesis:   "thesis and dissertation writing, research methodology, and academic argumentation"
   };
 
-  const focusLabel = modeLabels[safeMode] || modeLabels.essay;
+  const focusLabel = modeLabels[mode];
   const tokenMap   = { 5: 2000, 10: 3500, 15: 5000, 20: 6500 };
   const maxTokens  = tokenMap[safeCount] || 3500;
 
-  // Strong language enforcement
-  const langInstruction = safeLang === "Arabic"
+  const langInstruction = lang === "Arabic"
     ? "CRITICAL: You MUST write ALL prompts entirely in Arabic (العربية). Every single word including titles, prompt text, and 'When to use' must be in Arabic. Do not use any English."
-    : safeLang === "French"
+    : lang === "French"
     ? "CRITICAL: You MUST write ALL prompts entirely in French. Every single word including titles, prompt text, and 'When to use' must be in French. Do not use any English."
-    : safeLang === "Spanish"
+    : lang === "Spanish"
     ? "CRITICAL: You MUST write ALL prompts entirely in Spanish. Every single word including titles, prompt text, and 'When to use' must be in Spanish. Do not use any English."
     : "Write all prompts in English.";
 
-  const promptText = `Create exactly ${safeCount} ChatGPT prompts for a ${safeLevel} student.
+  const promptText = `Create exactly ${safeCount} ChatGPT prompts for a ${level} student.
 Subject: ${safeSubject}
 Task: ${safeTask}
 Focus: ${focusLabel}
 
 ${langInstruction}
 
-EXACT FORMAT for every prompt (keep ## Prompt N: headers in this exact format even in Arabic):
+EXACT FORMAT for every prompt:
 
-## Prompt 1: [Title in ${safeLang}]
-Prompt: [Full prompt text in ${safeLang} with [BRACKET PLACEHOLDERS]]
-When to use: [One sentence in ${safeLang}]
+## Prompt 1: [Title in ${lang}]
+Prompt: [Full prompt text in ${lang} with [BRACKET PLACEHOLDERS]]
+When to use: [One sentence in ${lang}]
 
 Continue through Prompt ${safeCount}. Make every prompt specific to "${safeSubject}" and "${safeTask}". Number sequentially.`;
 
@@ -111,7 +173,9 @@ Continue through Prompt ${safeCount}. Make every prompt specific to "${safeSubje
 };
 
 // ⚠️ Security Notes:
-// - API key is read from environment variables only — never hardcoded
-// - All user inputs are sanitized and length-clamped before use
-// - Prompt count is clamped to 5–20 to prevent abuse
-// - No sensitive data is logged
+// - API key in env vars only — never hardcoded
+// - Rate limited to 10 requests/minute/IP
+// - mode, lang, level validated against strict whitelists
+// - Free-text inputs sanitized: HTML, template literals, backslashes stripped
+// - count clamped to 5–20
+// - No sensitive data logged
