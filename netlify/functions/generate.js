@@ -1,8 +1,8 @@
 exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
-  }  
-  
+  }
+
   const API_KEY = process.env.GROQ_API_KEY;
   if (!API_KEY) {
     return { statusCode: 500, body: JSON.stringify({ error: "API key not configured — check Netlify environment variables" }) };
@@ -41,17 +41,27 @@ exports.handler = async function (event) {
   const tokenMap   = { 5: 2000, 10: 3500, 15: 5000, 20: 6500 };
   const maxTokens  = tokenMap[safeCount] || 3500;
 
+  // Strong language enforcement
+  const langInstruction = safeLang === "Arabic"
+    ? "CRITICAL: You MUST write ALL prompts entirely in Arabic (العربية). Every single word including titles, prompt text, and 'When to use' must be in Arabic. Do not use any English."
+    : safeLang === "French"
+    ? "CRITICAL: You MUST write ALL prompts entirely in French. Every single word including titles, prompt text, and 'When to use' must be in French. Do not use any English."
+    : safeLang === "Spanish"
+    ? "CRITICAL: You MUST write ALL prompts entirely in Spanish. Every single word including titles, prompt text, and 'When to use' must be in Spanish. Do not use any English."
+    : "Write all prompts in English.";
+
   const promptText = `Create exactly ${safeCount} ChatGPT prompts for a ${safeLevel} student.
 Subject: ${safeSubject}
 Task: ${safeTask}
 Focus: ${focusLabel}
-Language for instructions: ${safeLang}
 
-EXACT FORMAT for every prompt:
+${langInstruction}
 
-## Prompt 1: [Specific title]
-Prompt: [Full prompt with [BRACKET PLACEHOLDERS]]
-When to use: [One sentence]
+EXACT FORMAT for every prompt (keep ## Prompt N: headers in this exact format even in Arabic):
+
+## Prompt 1: [Title in ${safeLang}]
+Prompt: [Full prompt text in ${safeLang} with [BRACKET PLACEHOLDERS]]
+When to use: [One sentence in ${safeLang}]
 
 Continue through Prompt ${safeCount}. Make every prompt specific to "${safeSubject}" and "${safeTask}". Number sequentially.`;
 
@@ -68,7 +78,7 @@ Continue through Prompt ${safeCount}. Make every prompt specific to "${safeSubje
         messages: [
           {
             role: "system",
-            content: "You are an expert study coach creating highly specific, immediately usable ChatGPT prompts for students. Never write generic prompts. Always include [BRACKET PLACEHOLDERS] where students fill in their details."
+            content: `You are an expert study coach creating highly specific, immediately usable ChatGPT prompts for students. Never write generic prompts. Always include [BRACKET PLACEHOLDERS] where students fill in their details. ${langInstruction}`
           },
           { role: "user", content: promptText }
         ]
@@ -103,5 +113,5 @@ Continue through Prompt ${safeCount}. Make every prompt specific to "${safeSubje
 // ⚠️ Security Notes:
 // - API key is read from environment variables only — never hardcoded
 // - All user inputs are sanitized and length-clamped before use
-// - prompt count is clamped to 5–20 to prevent abuse
+// - Prompt count is clamped to 5–20 to prevent abuse
 // - No sensitive data is logged
