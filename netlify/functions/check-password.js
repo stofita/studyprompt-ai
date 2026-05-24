@@ -7,7 +7,7 @@ exports.handler = async function (event) {
   if (!CORRECT) {
     return { statusCode: 500, body: JSON.stringify({ error: "Access code not configured" }) };
   }
-
+ 
   let body;
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, body: JSON.stringify({ ok: false }) }; }
