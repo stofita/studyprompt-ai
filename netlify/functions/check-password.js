@@ -1,4 +1,5 @@
-const { getStore } = require("@netlify/blobs");
+// Persistent rate limiting using Netlify Blobs (built-in, no extra package needed)
+// @netlify/blobs is pre-installed in Netlify's function runtime
 
 const MAX_FAILS = 10;
 const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
@@ -7,9 +8,6 @@ exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
   }
-
-  const ip = event.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "unknown";
-  const key = `fails:${ip}`;
 
   const CORRECT = process.env.ACCESS_CODE;
   if (!CORRECT) {
@@ -25,31 +23,46 @@ exports.handler = async function (event) {
     return { statusCode: 400, body: JSON.stringify({ ok: false }) };
   }
 
-  try {
-    const store = getStore("rate-limits");
-    const now = Date.now();
+  const ip = event.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "unknown";
+  const now = Date.now();
 
-    // Check existing fails
-    const raw = await store.get(key, { type: "json" }).catch(() => null);
-    if (raw && raw.count >= MAX_FAILS && now - raw.firstFail < LOCKOUT_MS) {
-      const remainingMins = Math.ceil((LOCKOUT_MS - (now - raw.firstFail)) / 60000);
-      return {
-        statusCode: 429,
-        body: JSON.stringify({ ok: false, error: `Too many failed attempts. Try again in ${remainingMins} minute(s).` })
-      };
+  try {
+    const { getStore } = require("@netlify/blobs");
+    const store = getStore({ name: "rate-limits", consistency: "strong" });
+    const key = `ip_${ip.replace(/[^a-zA-Z0-9]/g, "_")}`;
+
+    // Get current fail record
+    let record = null;
+    try {
+      record = await store.get(key, { type: "json" });
+    } catch { record = null; }
+
+    // Check lockout
+    if (record && record.count >= MAX_FAILS) {
+      const elapsed = now - record.firstFail;
+      if (elapsed < LOCKOUT_MS) {
+        const remainingMins = Math.ceil((LOCKOUT_MS - elapsed) / 60000);
+        return {
+          statusCode: 429,
+          body: JSON.stringify({ ok: false, error: `Too many attempts. Try again in ${remainingMins} min.` })
+        };
+      } else {
+        // Lockout expired — reset
+        record = null;
+      }
     }
 
     const ok = code.trim() === CORRECT.trim();
 
     if (ok) {
-      // Clear fails on success
-      await store.delete(key).catch(() => {});
+      // Clear on success
+      try { await store.delete(key); } catch {}
     } else {
       // Record fail
-      const entry = raw && now - raw.firstFail < LOCKOUT_MS
-        ? { count: raw.count + 1, firstFail: raw.firstFail }
+      const updated = record
+        ? { count: record.count + 1, firstFail: record.firstFail }
         : { count: 1, firstFail: now };
-      await store.set(key, JSON.stringify(entry));
+      try { await store.set(key, updated); } catch {}
     }
 
     return {
@@ -58,8 +71,9 @@ exports.handler = async function (event) {
       body: JSON.stringify({ ok })
     };
 
-  } catch (err) {
-    // Fallback — if blob store fails, still check password
+  } catch (blobErr) {
+    // Blobs unavailable — still check password but no rate limiting
+    console.error("Blobs error:", blobErr.message);
     const ok = code.trim() === CORRECT.trim();
     return {
       statusCode: 200,
@@ -70,7 +84,7 @@ exports.handler = async function (event) {
 };
 
 // ⚠️ Security Notes:
-// - Uses Netlify Blobs for persistent rate limiting across serverless instances
-// - 10 failed attempts = 15 min lockout per IP
-// - Falls back to password check if blob store unavailable
-// - Access code stored in env var only, never logged
+// - Uses Netlify Blobs with strong consistency for persistent rate limiting
+// - 10 failed attempts triggers 15 min lockout per IP
+// - Falls back gracefully if Blobs unavailable
+// - Access code in env var only, never logged
